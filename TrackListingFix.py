@@ -10,21 +10,57 @@ def getopts(argv):
             opts[argv[0]] = argv[1]  # Add key and value to the dictionary.
         argv = argv[1:]  # Reduce the argument list by copying it starting from index 1.
     return opts
+def allow_bots(text, user):
+    user = user.lower().strip()
+    text = mwparserfromhell.parse(text)
+    for tl in text.filter_templates():
+        if tl.name in ('bots', 'nobots'):
+            break
+    else:
+        return True
+    for param in tl.params:
+        bots = [x.lower().strip() for x in param.value.split(",")]
+        if param.name == 'allow':
+            if ''.join(bots) == 'none': return False
+            for bot in bots:
+                if bot in (user, 'all'):
+                    return True
+        elif param.name == 'deny':
+            if ''.join(bots) == 'none': return True
+            for bot in bots:
+                if bot in (user, 'all'):
+                    return False
+    return True
+def save_edit(original_text,dry_run):#,config):
+    #if not allow_bots(original_text, config.get('enwiki','username')):
+    #    print("Page editing blocked as template preventing edit is present.")
+    #    return
+     #print("{}".format(dry_run))
+     while True:
+         #text = page.edit()
+         #text = text.replace('[[Category:Apples]]', '[[Category:Pears]]')
+         text = remove_param(original_text,dry_run)
+         try:
+             if dry_run:
+                 print("Dry run")
+                 text_file = open("Output.txt", "w")
+                 text_file.write(text)
+                 text_file.close()
+                 break
+             else:
+                print("Would have saved here")
+                break
+                #TODO: Enable
+                #page.save(text, summary='Removed deprecated parameter(s) from [[Template:Track listing]]', bot=True, minor=True)
+         except [[EditError]]:
+             print("Error")
+             continue
+         except [[ProtectedPageError]]:
+             print('Could not edit ' + page.page_title + ' due to protection')
+         break
 
-def main():
-    from sys import argv
-    myargs = getopts(argv)
-    dry_run = False
-    if '-dry-run' in myargs:  # Example usage.
-        print(myargs['-dry-run'])
-        dry_run = True
-    print(myargs)
-    site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
-    #config = configparser.RawConfigParser()
-    #config.read('credentials.txt')
-    #TODO: site.login(config.get('enwiki','username'), config.get('enwiki', 'password'))
-    page = site.Pages['0 to 1 no Aida']#'3 (Bo Bice album)']
-    text = page.text()
+def remove_param(text,dry_run):
+#    print("In remove {}".format(dry_run))
     wikicode = mwparserfromhell.parse(text)
     templates = wikicode.filter_templates()
 
@@ -50,14 +86,36 @@ def main():
             if template.has("music_credits"):
                 template.remove("music_credits",False)
                 print("Removed music_credits")
-    text = str(code)
-    #TODO: save page here with summary
-    if dry_run:
-        print("DRY")
-        text_file = open("Output.txt", "w")
-        text_file.write(text)
-        text_file.close()
+    return str(code) # get back text to save
+def main():
+    from sys import argv
+    myargs = getopts(argv)
+    #dry_run = False
+    if '--dry-run' in myargs:  # Example usage.
+        print(myargs['--dry-run'])
+        dry_run = True
     else:
-        print("REAL")
+        dry_run = False
+
+    site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
+    #config = configparser.RawConfigParser()
+    #config.read('credentials.txt')
+    #TODO: site.login(config.get('enwiki','username'), config.get('enwiki', 'password'))
+    page = site.Pages['0 to 1 no Aida']#'3 (Bo Bice album)']
+    text = page.text()
+
+#    print("Main {}".format(dry_run))
+    #print(myargs)
+    #site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
+    #text = remove_param(dry_run)
+#    if dry_run:
+    #    print("DRY")
+#        text_file = open("Output.txt", "w")
+#        text_file.write(text)
+#        text_file.close()
+#    else:
+#        save_edit(str(code),dry_run)
+#        print("REAL")
+    save_edit(text, dry_run)#, config)
 if __name__ == "__main__":
     main()
