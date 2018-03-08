@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import mwclient, configparser
 import mwparserfromhell
-#import sys
 
 def getopts(argv):
     opts = {}  # Empty dictionary to store key-value pairs.
@@ -10,6 +9,14 @@ def getopts(argv):
             opts[argv[0]] = argv[1]  # Add key and value to the dictionary.
         argv = argv[1:]  # Reduce the argument list by copying it starting from index 1.
     return opts
+def call_home():#config):
+    site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
+    #page = site.Pages['User:' + config.get('enwiki','username') + "/status"]
+    page = site.Pages['User:TweetCiteBot/status']
+    text = page.text()
+    if "false" in text.lower():
+        return False
+    return True
 def allow_bots(text, user):
     user = user.lower().strip()
     text = mwparserfromhell.parse(text)
@@ -36,6 +43,8 @@ def save_edit(original_text,dry_run):#,config):
     #    print("Page editing blocked as template preventing edit is present.")
     #    return
      #print("{}".format(dry_run))
+     if not call_home():#config):
+         raise ValueError("Kill switch on-wiki is false. Terminating program.")
      while True:
          #text = page.edit()
          #text = text.replace('[[Category:Apples]]', '[[Category:Pears]]')
@@ -116,6 +125,9 @@ def main():
 #    else:
 #        save_edit(str(code),dry_run)
 #        print("REAL")
-    save_edit(text, dry_run)#, config)
+    try:
+        save_edit(text, dry_run)#, config)
+    except ValueError as err:
+        print(err)
 if __name__ == "__main__":
     main()
