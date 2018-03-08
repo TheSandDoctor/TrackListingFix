@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-import mwclient, configparser
-import mwparserfromhell
+import mwclient, configparser, mwparserfromhell
 
 def getopts(argv):
     opts = {}  # Empty dictionary to store key-value pairs.
@@ -9,8 +8,7 @@ def getopts(argv):
             opts[argv[0]] = argv[1]  # Add key and value to the dictionary.
         argv = argv[1:]  # Reduce the argument list by copying it starting from index 1.
     return opts
-def call_home():#config):
-    site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
+def call_home(site):#config):
     #page = site.Pages['User:' + config.get('enwiki','username') + "/status"]
     page = site.Pages['User:TweetCiteBot/status']
     text = page.text()
@@ -38,12 +36,12 @@ def allow_bots(text, user):
                 if bot in (user, 'all'):
                     return False
     return True
-def save_edit(original_text,dry_run):#,config):
+def save_edit(site, original_text,dry_run):#,config):
     #if not allow_bots(original_text, config.get('enwiki','username')):
     #    print("Page editing blocked as template preventing edit is present.")
     #    return
      #print("{}".format(dry_run))
-     if not call_home():#config):
+     if not call_home(site):#config):
          raise ValueError("Kill switch on-wiki is false. Terminating program.")
      while True:
          #text = page.edit()
@@ -113,20 +111,8 @@ def main():
     page = site.Pages['0 to 1 no Aida']#'3 (Bo Bice album)']
     text = page.text()
 
-#    print("Main {}".format(dry_run))
-    #print(myargs)
-    #site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
-    #text = remove_param(dry_run)
-#    if dry_run:
-    #    print("DRY")
-#        text_file = open("Output.txt", "w")
-#        text_file.write(text)
-#        text_file.close()
-#    else:
-#        save_edit(str(code),dry_run)
-#        print("REAL")
     try:
-        save_edit(text, dry_run)#, config)
+        save_edit(site, text, dry_run)#, config)
     except ValueError as err:
         print(err)
 if __name__ == "__main__":
