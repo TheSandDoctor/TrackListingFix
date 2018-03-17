@@ -1,13 +1,7 @@
-#!/usr/bin/env python3
-import mwclient, configparser, mwparserfromhell
+#!/usr/bin/env python3.6
+import mwclient, configparser, mwparserfromhell, argparse,sys
+from mwclient import *
 
-def getopts(argv):
-    opts = {}  # Empty dictionary to store key-value pairs.
-    while argv:  # While there are arguments left to parse...
-        if argv[0][0] == '-':  # Found a "-name value" pair.
-            opts[argv[0]] = argv[1]  # Add key and value to the dictionary.
-        argv = argv[1:]  # Reduce the argument list by copying it starting from index 1.
-    return opts
 def call_home(site):#config):
     #page = site.Pages['User:' + config.get('enwiki','username') + "/status"]
     page = site.Pages['User:TweetCiteBot/status']
@@ -36,17 +30,25 @@ def allow_bots(text, user):
                 if bot in (user, 'all'):
                     return False
     return True
-def save_edit(site, original_text,dry_run):#,config):
+def save_edit(page, site, original_text,dry_run,config):
     #if not allow_bots(original_text, config.get('enwiki','username')):
     #    print("Page editing blocked as template preventing edit is present.")
     #    return
      #print("{}".format(dry_run))
      if not call_home(site):#config):
          raise ValueError("Kill switch on-wiki is false. Terminating program.")
+     time = 0
      while True:
+         #content_changed = False
          #text = page.edit()
          #text = text.replace('[[Category:Apples]]', '[[Category:Pears]]')
-         text = remove_param(original_text,dry_run)
+         if time == 0:
+             text = page.text()
+         if time == 1:
+        #     page = site.Pages[page.page_title]
+             page.purge()
+             original_text = site.Pages[page.page_title].text()
+         content_changed, text = remove_param(original_text,dry_run)
          try:
              if dry_run:
                  print("Dry run")
@@ -55,15 +57,25 @@ def save_edit(site, original_text,dry_run):#,config):
                  text_file.close()
                  break
              else:
-                print("Would have saved here")
+                #print("Would have saved here")
+                #break
+                if not content_changed:
+                    print("Content not changed, don't bother pushing edit to server")
+                    break
+                page.save(text, summary='Removed deprecated parameter(s) from [[Template:Track listing]] using' +  "[[User:" + config.get('enwiki','username') + "| " + config.get('enwiki','username') + "]]-PyEdition Mistake? [[User talk:TheSandDoctor|msg TSD!]] (please mention that this is the PyEdition task #2! [[Wikipedia:Bots/Requests for approval/TweetCiteBot 2|BRFA in-progress]])", bot=True, minor=True)
+                print("Saved page")
+                if time == 1:
+                    time = 0
                 break
-                #TODO: Enable
-                #page.save(text, summary='Removed deprecated parameter(s) from [[Template:Track listing]]', bot=True, minor=True)
-         except [[EditError]]:
+         except [[EditError]] as e:
              print("Error")
+             print(e)
+             time = 1
+             time.sleep(5)   # sleep for 5 seconds, giving server some time before querying again
              continue
-         except [[ProtectedPageError]]:
+         except [[ProtectedPageError]] as e:
              print('Could not edit ' + page.page_title + ' due to protection')
+             print(e)
          break
 
 def remove_param(text,dry_run):
@@ -71,6 +83,7 @@ def remove_param(text,dry_run):
     wikicode = mwparserfromhell.parse(text)
     templates = wikicode.filter_templates()
 
+    content_changed = False
     #TODO: Testing (dry run) only
     if dry_run:
         text_file = open("Input.txt","w")
@@ -80,40 +93,58 @@ def remove_param(text,dry_run):
 
     code = mwparserfromhell.parse(text)
     for template in code.filter_templates():#Tracklist, Track, Soundtrack, Tlist, Track list
-        template.name = template.name.lower()
+        #template.name = template.name.lower()
         if (template.name.matches("track listing") or template.name.matches("tracklisting")
         or template.name.matches("tracklist") or template.name.matches("track") or template.name.matches("soundtrack")
         or template.name.matches("tlist") or template.name.matches("track list")):
             if template.has("writing_credits"):
                 template.remove("writing_credits",False)
+                content_changed = True
                 print("Removed writing_credits")
             if template.has("lyrics_credits"):
                 template.remove("lyrics_credits",False)
+                content_changed = True
                 print("Removed lyrics_credits")
             if template.has("music_credits"):
                 template.remove("music_credits",False)
+                content_changed = True
                 print("Removed music_credits")
-    return str(code) # get back text to save
+    return [content_changed, str(code)] # get back text to save
 def main():
-    from sys import argv
-    myargs = getopts(argv)
+    parser = argparse.ArgumentParser(prog='TweetCiteBot Tweet URL conversion', description='''Reads {{cite web}} templates
+    on articles looking for url parameters containing Tweet URLs. If found, convert template to {{cite tweet}} and retrieve
+    relevant information (if possible). If the Tweet is a dead link, attempt recovery with the Wayback archive and tag accordingly
+    on-wiki. This task was approved by the English Wikipedia Bot Approvals Group at 17:59, 2 December 2017 (UTC) by BAG admin
+    User:cyberpower678''')
+    parser.add_argument("-dr", "--dryrun", help="perform a dry run (don't actually edit)",
+                    action="store_true")
+    args = parser.parse_args()
     #dry_run = False
-    if '--dry-run' in myargs:  # Example usage.
-        print(myargs['--dry-run'])
+    if args.dryrun:
         dry_run = True
+        print("Dry run")
     else:
         dry_run = False
 
     site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
-    #config = configparser.RawConfigParser()
-    #config.read('credentials.txt')
-    #TODO: site.login(config.get('enwiki','username'), config.get('enwiki', 'password'))
+    config = configparser.RawConfigParser()
+    config.read('credentials.txt')
+    try:
+        site.login(config.get('enwiki','username'), config.get('enwiki', 'password'))
+    except errors.LoginError as e:
+        #print(e[1]['reason'])
+        print(e)
+        raise ValueError("Login failed.")
     page = site.Pages['0 to 1 no Aida']#'3 (Bo Bice album)']
     text = page.text()
 
     try:
-        save_edit(site, text, dry_run)#, config)
+        save_edit(page, site, text, dry_run, config)
     except ValueError as err:
         print(err)
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('Interrupted')
+        sys.exit(0)
