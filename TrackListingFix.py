@@ -1,5 +1,5 @@
 #!/usr/bin/env python3.6
-import mwclient, configparser, mwparserfromhell, argparse,sys
+import mwclient, configparser, mwparserfromhell, re, argparse, sys
 from mwclient import *
 
 def call_home(site):#config):
@@ -30,13 +30,39 @@ def allow_bots(text, user):
                 if bot in (user, 'all'):
                     return False
     return True
-def save_edit(page, site, original_text,dry_run,config):
-    #if not allow_bots(original_text, config.get('enwiki','username')):
-    #    print("Page editing blocked as template preventing edit is present.")
-    #    return
-     #print("{}".format(dry_run))
+def get_next_iter_item(some_iterable, window=1):
+    """
+    Get the item that will be in next iteration of the loop.
+    This will be useful for finding {{dead link}} templates.
+    This code is adapted from an answer to a StackOverflow question by user nosklo
+    https://stackoverflow.com/questions/4197805/python-for-loop-look-ahead/4197869#4197869
+    @param some_iterable Thing to iterate over
+    @param window How far to look ahead
+    """
+    items, nexts = tee(some_iterable, 2)
+    nexts = islice(nexts, window, None)
+    return zip_longest(items, nexts)
+def save_edit(page, utils, text):#config, api, site, original_text,dry_run):#,config):
+    #utils = [config,api,site,archive_urls,dry_run]
+     config = utils[0]
+     #api = utils[1]
+     site = utils[2]
+     dry_run = utils[4]
+     archive_urls = utils[3]
+     original_text = text
+
+     code = mwparserfromhell.parse(text)
+     for template in code.filter_templates():
+         if template.name.matches("nobots") or template.name.matches("Wikipedia:Exclusion compliant"):
+             if template.has("allow"):
+                 if "TweetCiteBot" in template.get("allow").value:
+                     break # can edit
+             print("\n\nPage editing blocked as template preventing edit is present.\n\n")
+             return
+
      if not call_home(site):#config):
-         raise ValueError("Kill switch on-wiki is false. Terminating program.")
+        raise ValueError("Kill switch on-wiki is false. Terminating program.")
+     edit_summary = 'Removed deprecated parameter(s) from [[Template:Track listing]] using' +  "[[User:" + config.get('enwiki','username') + "| " + config.get('enwiki','username') + "]]-PyEdition Mistake? [[User talk:TheSandDoctor|msg TSD!]] (please mention that this is the PyEdition task #2! [[Wikipedia:Bots/Requests for approval/TweetCiteBot 2|BRFA in-progress]])"
      time = 0
      while True:
          #content_changed = False
@@ -48,28 +74,41 @@ def save_edit(page, site, original_text,dry_run,config):
         #     page = site.Pages[page.page_title]
              page.purge()
              original_text = site.Pages[page.page_title].text()
-         content_changed, text = remove_param(original_text,dry_run)
+         content_changed, text = convert(original_text,dry_run, archive_urls)
          try:
              if dry_run:
                  print("Dry run")
-                 text_file = open("Output.txt", "w")
-                 text_file.write(text)
+                 #Write out the initial input
+                 text_file = open("Input02.txt", "w")
+                 text_file.write(original_text)
                  text_file.close()
+                 #Write out the output
+                 if content_changed:
+                     text_file = open("Output02.txt", "w")
+                     text_file.write(text)
+                     text_file.close()
+                 else:
+                     print("Content not changed, don't print output")
                  break
              else:
+                if verbose:
+                    print("LIVE run")
                 #print("Would have saved here")
                 #break
+                #TODO: Enable
                 if not content_changed:
-                    print("Content not changed, don't bother pushing edit to server")
+                    if verbose:
+                        print("Content not changed, don't bother pushing edit to server")
                     break
-                page.save(text, summary='Removed deprecated parameter(s) from [[Template:Track listing]] using' +  "[[User:" + config.get('enwiki','username') + "| " + config.get('enwiki','username') + "]]-PyEdition Mistake? [[User talk:TheSandDoctor|msg TSD!]] (please mention that this is the PyEdition task #2! [[Wikipedia:Bots/Requests for approval/TweetCiteBot 2|BRFA in-progress]])", bot=True, minor=True)
+                #break
+                page.save(text, summary=edit_summary, bot=True, minor=True)
+                #print(page.page_title)
                 print("Saved page")
                 if time == 1:
                     time = 0
                 break
-         except [[EditError]] as e:
+         except [[EditError]]:
              print("Error")
-             print(e)
              time = 1
              time.sleep(5)   # sleep for 5 seconds, giving server some time before querying again
              continue
@@ -78,12 +117,20 @@ def save_edit(page, site, original_text,dry_run,config):
              print(e)
          break
 
-def remove_param(text,dry_run):
+def convert(text,dry_run,archive_urls):
+    """
+    Converts use of {{cite web}} for tweets (if present) to using {{cite tweet}}.
+    @param text Page text to go over
+    @param dry_run boolean Whether or not this is a dry run (dry run = no live edit)
+    @param api Twitter API instance
+    @returns [content_changed, content] Whether content was changed,
+    (if former true, modified) content.
+    """
 #    print("In remove {}".format(dry_run))
     wikicode = mwparserfromhell.parse(text)
     templates = wikicode.filter_templates()
-
     content_changed = False
+
     #TODO: Testing (dry run) only
     if dry_run:
         text_file = open("Input.txt","w")
@@ -110,7 +157,23 @@ def remove_param(text,dry_run):
                 content_changed = True
                 print("Removed music_credits")
     return [content_changed, str(code)] # get back text to save
+def getList():
+    f = open("list of all articles containing links to tweets (unmarked up).txt", 'r')
+    lst = f.read().split('\n')
+    articles = []
+    for l in lst:
+        if not l is "":
+            articles.append(l)
+    return articles
 def main():
+    limited_run = True
+    pages_to_run = 46
+    offset = 40
+    category = True
+    archive_urls = False
+    dry_run = False
+    verbose = False
+
     parser = argparse.ArgumentParser(prog='TweetCiteBot Tweet URL conversion', description='''Reads {{cite web}} templates
     on articles looking for url parameters containing Tweet URLs. If found, convert template to {{cite tweet}} and retrieve
     relevant information (if possible). If the Tweet is a dead link, attempt recovery with the Wayback archive and tag accordingly
@@ -118,15 +181,24 @@ def main():
     User:cyberpower678''')
     parser.add_argument("-dr", "--dryrun", help="perform a dry run (don't actually edit)",
                     action="store_true")
+    parser.add_argument("-arch","--archive", help="actively archive Tweet links (even if still live links)",
+                    action="store_true")
+    parser.add_argument("-v","--verbose", help="Display more information when running",
+                    action="store_true")
     args = parser.parse_args()
-    #dry_run = False
     if args.dryrun:
         dry_run = True
         print("Dry run")
-    else:
-        dry_run = False
+    if args.archive:
+        print("Archive allow")
+        archive_urls = True
+    if args.verbose:
+        print("Verbose mode")
+        verbose = True
+    #raise ValueError("for testing, dont want whole script running")
 
     site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
+    #site = mwclient.Site(('https','wiki.markyrosongaming.com','/w/'))
     config = configparser.RawConfigParser()
     config.read('credentials.txt')
     try:
@@ -135,15 +207,72 @@ def main():
         #print(e[1]['reason'])
         print(e)
         raise ValueError("Login failed.")
-    page = site.Pages['0 to 1 no Aida']#'3 (Bo Bice album)']
-    text = page.text()
+    counter = 0
+    #for page in site.Categories[category]:
+    #page = site.Pages['User:TweetCiteBot/sandbox']#"If You Ever Think I Will Stop Goin' In Ask Double R"]#'3 (Bo Bice album)']
+    #    print("Working with: " + page.name)
+    #page = site.Pages['User:TweetCiteBot/sandbox']#'3 (Bo Bice album)']
+    #    if limited_run:
+    #        if counter < pages_to_run:
+    #            counter += 1
+    #        else:
+    #            return  # run out of pages in limited run
+    #utils = [config,api,site,archive_urls,dry_run]
+    utils = [config,None,site,False,dry_run]
+    #list = getList()
+    #print(len(list))
+    #raise ValueError("yoyo")
+    for page in site.Categories['Track listings with deprecated parameters']:
+        if offset > 0:
+            offset -= 1
+            counter += 1
+            print("Skipped due to offset config")
+            continue
+        print("Working with: " + page.name + " Count: " + str(counter))
+        if counter < pages_to_run:
+            text = page.edit()
+            #text = text.replace('[[Category:Apples]]', '[[Category:Pears]]')
+            try:
+                save_edit(page, utils, text)
+                #page.save(text, summary='Moved from category Apples to category Pears')
+            except [[EditError]]:
+                continue
+            except [[ProtectedPageError]]:
+                print('Could not edit ' + page.page_title + ' due to protection')
+            counter += 1
+        else:
+            return
 
-    try:
-        save_edit(page, site, text, dry_run, config)
-    except ValueError as err:
-        print(err)
+
+                #else:
+                #    return  # run out of pages in limited run
+    #for art in getList():
+    #    if offset > 0:
+    #        offset -= 1
+    #        print("Skipped due to offset config")
+    #        continue
+    #    print("Working with: " + art)
+    #    page = site.Pages[art]
+    #    if limited_run:
+    #        if counter < pages_to_run:
+    #            counter += 1
+    #            text = page.text()
+    #            try:
+    #                save_edit(page, utils, text)#config, api, site, text, dry_run)#, config)
+    #                #time.sleep(0.5)    # sleep 1/2 second in between pages
+    #            except ValueError as err:
+    #                print(err)
+    #        else:
+    #            return  # run out of pages in limited run
+    #text = page.text()
+#    try:
+#        save_edit(page, utils, text)#config, api, site, text, dry_run)#, config)
+#    except ValueError as err:
+#        print(err)
+    #sleep(5)    # sleep 5 seconds in between pages
 if __name__ == "__main__":
     try:
+        verbose = False
         main()
     except KeyboardInterrupt:
         print('Interrupted')
