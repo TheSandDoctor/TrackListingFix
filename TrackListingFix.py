@@ -3,8 +3,7 @@ import mwclient, configparser, mwparserfromhell, re, argparse, sys
 from mwclient import *
 import json
 
-def call_home(site):#config):
-    #page = site.Pages['User:' + config.get('enwikidep','username') + "/status"]
+def call_home(site):
     page = site.Pages['User:DeprecatedFixerBot/status']
     text = page.text()
     data = json.loads(text)["run"]["track_listing"]
@@ -44,8 +43,7 @@ def get_next_iter_item(some_iterable, window=1):
     items, nexts = tee(some_iterable, 2)
     nexts = islice(nexts, window, None)
     return zip_longest(items, nexts)
-def save_edit(page, utils, text):#config, api, site, original_text,dry_run):#,config):
-    #utils = [config,api,site,archive_urls,dry_run]
+def save_edit(page, utils, text):
      config = utils[0]
      #api = utils[1]
      site = utils[2]
@@ -61,18 +59,14 @@ def save_edit(page, utils, text):#config, api, site, original_text,dry_run):#,co
              print("\n\nPage editing blocked as template preventing edit is present.\n\n")
              return
 
-     if not call_home(site):#config):
+     if not call_home(site):
         raise ValueError("Kill switch on-wiki is false. Terminating program.")
      edit_summary = 'Removed deprecated parameter(s) from [[Template:Track listing]] using' +  "[[User:" + config.get('enwikidep','username') + "| " + config.get('enwikidep','username') + "]]. Mistake? [[User talk:TheSandDoctor|msg TSD!]] (please mention that this is task #1!)"
      time = 0
      while True:
-         #content_changed = False
-         #text = page.edit()
-         #text = text.replace('[[Category:Apples]]', '[[Category:Pears]]')
          if time == 0:
              text = page.text()
          if time == 1:
-        #     page = site.Pages[page.page_title]
              page.purge()
              original_text = site.Pages[page.page_title].text()
          content_changed, text = remove_deprecated_params(original_text,dry_run)
@@ -94,16 +88,11 @@ def save_edit(page, utils, text):#config, api, site, original_text,dry_run):#,co
              else:
                 if verbose:
                     print("LIVE run")
-                #print("Would have saved here")
-                #break
-                #TODO: Enable
                 if not content_changed:
                     if verbose:
                         print("Content not changed, don't bother pushing edit to server")
                     break
-                #break
                 page.save(text, summary=edit_summary, bot=True, minor=True)
-                #print(page.page_title)
                 print("Saved page")
                 if time == 1:
                     time = 0
@@ -126,7 +115,6 @@ def remove_deprecated_params(text,dry_run):
     @returns [content_changed, content] Whether content was changed,
     (if former true, modified) content.
     """
-#    print("In remove {}".format(dry_run))
     wikicode = mwparserfromhell.parse(text)
     templates = wikicode.filter_templates()
     content_changed = False
@@ -139,8 +127,7 @@ def remove_deprecated_params(text,dry_run):
     #TODO: End dry run only
 
     code = mwparserfromhell.parse(text)
-    for template in code.filter_templates():#Tracklist, Track, Soundtrack, Tlist, Track list
-        #template.name = template.name.lower()
+    for template in code.filter_templates():
         if (template.name.matches("track listing") or template.name.matches("tracklisting")
         or template.name.matches("tracklist") or template.name.matches("track") or template.name.matches("soundtrack")
         or template.name.matches("tlist") or template.name.matches("track list") or template.name.matches("Track_listing")):
@@ -157,14 +144,6 @@ def remove_deprecated_params(text,dry_run):
                 content_changed = True
                 print("Removed music_credits")
     return [content_changed, str(code)] # get back text to save
-def getList():
-    f = open("list of all articles containing links to tweets (unmarked up).txt", 'r')
-    lst = f.read().split('\n')
-    articles = []
-    for l in lst:
-        if not l is "":
-            articles.append(l)
-    return articles
 def main():
     limited_run = True
     pages_to_run = 500
@@ -186,10 +165,8 @@ def main():
     if args.verbose:
         print("Verbose mode")
         verbose = True
-    #raise ValueError("for testing, dont want whole script running")
 
     site = mwclient.Site(('https','en.wikipedia.org'), '/w/')
-    #site = mwclient.Site(('https','wiki.markyrosongaming.com','/w/'))
     config = configparser.RawConfigParser()
     config.read('credentials.txt')
     try:
@@ -199,20 +176,7 @@ def main():
         print(e)
         raise ValueError("Login failed.")
     counter = 0
-    #for page in site.Categories[category]:
-    #page = site.Pages['User:TweetCiteBot/sandbox']#"If You Ever Think I Will Stop Goin' In Ask Double R"]#'3 (Bo Bice album)']
-    #    print("Working with: " + page.name)
-    #page = site.Pages['User:TweetCiteBot/sandbox']#'3 (Bo Bice album)']
-    #    if limited_run:
-    #        if counter < pages_to_run:
-    #            counter += 1
-    #        else:
-    #            return  # run out of pages in limited run
-    #utils = [config,api,site,archive_urls,dry_run]
     utils = [config,None,site,False,dry_run]
-    #list = getList()
-    #print(len(list))
-    #raise ValueError("yoyo")
     for page in site.Categories['Track listings with deprecated parameters']:
         if offset > 0:
             offset -= 1
@@ -222,10 +186,8 @@ def main():
         if counter < pages_to_run:
             print("Working with: " + page.name + " Count: " + str(counter))
             text = page.text()
-            #text = text.replace('[[Category:Apples]]', '[[Category:Pears]]')
             try:
                 save_edit(page, utils, text)
-                #page.save(text, summary='Moved from category Apples to category Pears')
             except [[EditError]]:
                 print("Edit error")
                 continue
@@ -234,34 +196,6 @@ def main():
             counter += 1
         else:
             return
-
-
-                #else:
-                #    return  # run out of pages in limited run
-    #for art in getList():
-    #    if offset > 0:
-    #        offset -= 1
-    #        print("Skipped due to offset config")
-    #        continue
-    #    print("Working with: " + art)
-    #    page = site.Pages[art]
-    #    if limited_run:
-    #        if counter < pages_to_run:
-    #            counter += 1
-    #            text = page.text()
-    #            try:
-    #                save_edit(page, utils, text)#config, api, site, text, dry_run)#, config)
-    #                #time.sleep(0.5)    # sleep 1/2 second in between pages
-    #            except ValueError as err:
-    #                print(err)
-    #        else:
-    #            return  # run out of pages in limited run
-    #text = page.text()
-#    try:
-#        save_edit(page, utils, text)#config, api, site, text, dry_run)#, config)
-#    except ValueError as err:
-#        print(err)
-    #sleep(5)    # sleep 5 seconds in between pages
 if __name__ == "__main__":
     try:
         verbose = False
