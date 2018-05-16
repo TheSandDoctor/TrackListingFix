@@ -54,7 +54,7 @@ def save_edit(page, utils, text):
      for template in code.filter_templates():
          if template.name.matches("nobots") or template.name.matches("Wikipedia:Exclusion compliant"):
              if template.has("allow"):
-                 if "TweetCiteBot" in template.get("allow").value:
+                 if "DeprecatedFixerBot" in template.get("allow").value:
                      break # can edit
              print("\n\nPage editing blocked as template preventing edit is present.\n\n")
              return
