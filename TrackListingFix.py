@@ -1,14 +1,16 @@
 #!/usr/bin/env python3.6
 import mwclient, configparser, mwparserfromhell, re, argparse, sys
 from mwclient import *
+import json
 
 def call_home(site):#config):
-    #page = site.Pages['User:' + config.get('enwiki','username') + "/status"]
-    page = site.Pages['User:TweetCiteBot/status']
+    #page = site.Pages['User:' + config.get('enwikidep','username') + "/status"]
+    page = site.Pages['User:DeprecatedFixerBot/status']
     text = page.text()
-    if "false" in text.lower():
-        return False
-    return True
+    data = json.loads(text)["run"]["track_listing"]
+    if str(data) == str(True):
+        return True
+    return False
 def allow_bots(text, user):
     user = user.lower().strip()
     text = mwparserfromhell.parse(text)
@@ -48,7 +50,6 @@ def save_edit(page, utils, text):#config, api, site, original_text,dry_run):#,co
      #api = utils[1]
      site = utils[2]
      dry_run = utils[4]
-     archive_urls = utils[3]
      original_text = text
 
      code = mwparserfromhell.parse(text)
@@ -62,7 +63,7 @@ def save_edit(page, utils, text):#config, api, site, original_text,dry_run):#,co
 
      if not call_home(site):#config):
         raise ValueError("Kill switch on-wiki is false. Terminating program.")
-     edit_summary = 'Removed deprecated parameter(s) from [[Template:Track listing]] using' +  "[[User:" + config.get('enwiki','username') + "| " + config.get('enwiki','username') + "]]-PyEdition Mistake? [[User talk:TheSandDoctor|msg TSD!]] (please mention that this is the PyEdition task #2! [[Wikipedia:Bots/Requests for approval/TweetCiteBot 2|BRFA in-progress]])"
+     edit_summary = 'Removed deprecated parameter(s) from [[Template:Track listing]] using' +  "[[User:" + config.get('enwikidep','username') + "| " + config.get('enwikidep','username') + "]]. Mistake? [[User talk:TheSandDoctor|msg TSD!]] (please mention that this is task #1!)"
      time = 0
      while True:
          #content_changed = False
@@ -74,17 +75,17 @@ def save_edit(page, utils, text):#config, api, site, original_text,dry_run):#,co
         #     page = site.Pages[page.page_title]
              page.purge()
              original_text = site.Pages[page.page_title].text()
-         content_changed, text = convert(original_text,dry_run, archive_urls)
+         content_changed, text = remove_deprecated_params(original_text,dry_run)
          try:
              if dry_run:
                  print("Dry run")
                  #Write out the initial input
-                 text_file = open("Input02.txt", "w")
+                 text_file = open("DepInput01.txt", "w")
                  text_file.write(original_text)
                  text_file.close()
                  #Write out the output
                  if content_changed:
-                     text_file = open("Output02.txt", "w")
+                     text_file = open("DepOutput01.txt", "w")
                      text_file.write(text)
                      text_file.close()
                  else:
@@ -117,12 +118,11 @@ def save_edit(page, utils, text):#config, api, site, original_text,dry_run):#,co
              print(e)
          break
 
-def convert(text,dry_run,archive_urls):
+def remove_deprecated_params(text,dry_run):
     """
-    Converts use of {{cite web}} for tweets (if present) to using {{cite tweet}}.
+    Removes deprecated parameters from the {{Track listing}} template (and its redirects)
     @param text Page text to go over
     @param dry_run boolean Whether or not this is a dry run (dry run = no live edit)
-    @param api Twitter API instance
     @returns [content_changed, content] Whether content was changed,
     (if former true, modified) content.
     """
@@ -143,7 +143,7 @@ def convert(text,dry_run,archive_urls):
         #template.name = template.name.lower()
         if (template.name.matches("track listing") or template.name.matches("tracklisting")
         or template.name.matches("tracklist") or template.name.matches("track") or template.name.matches("soundtrack")
-        or template.name.matches("tlist") or template.name.matches("track list")):
+        or template.name.matches("tlist") or template.name.matches("track list") or template.name.matches("Track_listing")):
             if template.has("writing_credits"):
                 template.remove("writing_credits",False)
                 content_changed = True
@@ -167,21 +167,15 @@ def getList():
     return articles
 def main():
     limited_run = True
-    pages_to_run = 46
-    offset = 40
+    pages_to_run = 500
+    offset = 0
     category = True
-    archive_urls = False
     dry_run = False
     verbose = False
 
-    parser = argparse.ArgumentParser(prog='TweetCiteBot Tweet URL conversion', description='''Reads {{cite web}} templates
-    on articles looking for url parameters containing Tweet URLs. If found, convert template to {{cite tweet}} and retrieve
-    relevant information (if possible). If the Tweet is a dead link, attempt recovery with the Wayback archive and tag accordingly
-    on-wiki. This task was approved by the English Wikipedia Bot Approvals Group at 17:59, 2 December 2017 (UTC) by BAG admin
-    User:cyberpower678''')
+    parser = argparse.ArgumentParser(prog='DeprecatedFixerBot Tracklisting fixer', description='''Goes through pages in the category [[:Category:Track listings with deprecated parameters]]
+    and removes deprecated parameters.''')
     parser.add_argument("-dr", "--dryrun", help="perform a dry run (don't actually edit)",
-                    action="store_true")
-    parser.add_argument("-arch","--archive", help="actively archive Tweet links (even if still live links)",
                     action="store_true")
     parser.add_argument("-v","--verbose", help="Display more information when running",
                     action="store_true")
@@ -189,9 +183,6 @@ def main():
     if args.dryrun:
         dry_run = True
         print("Dry run")
-    if args.archive:
-        print("Archive allow")
-        archive_urls = True
     if args.verbose:
         print("Verbose mode")
         verbose = True
@@ -202,7 +193,7 @@ def main():
     config = configparser.RawConfigParser()
     config.read('credentials.txt')
     try:
-        site.login(config.get('enwiki','username'), config.get('enwiki', 'password'))
+        site.login(config.get('enwikidep','username'), config.get('enwikidep', 'password'))
     except errors.LoginError as e:
         #print(e[1]['reason'])
         print(e)
@@ -228,14 +219,15 @@ def main():
             counter += 1
             print("Skipped due to offset config")
             continue
-        print("Working with: " + page.name + " Count: " + str(counter))
         if counter < pages_to_run:
-            text = page.edit()
+            print("Working with: " + page.name + " Count: " + str(counter))
+            text = page.text()
             #text = text.replace('[[Category:Apples]]', '[[Category:Pears]]')
             try:
                 save_edit(page, utils, text)
                 #page.save(text, summary='Moved from category Apples to category Pears')
             except [[EditError]]:
+                print("Edit error")
                 continue
             except [[ProtectedPageError]]:
                 print('Could not edit ' + page.page_title + ' due to protection')
