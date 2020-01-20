@@ -1,0 +1,3 @@
+[submodule "mwparserfromhell"]
+	path = mwparserfromhell
+	url = https://github.com/TheSandDoctor/mwparserfromhell.git
